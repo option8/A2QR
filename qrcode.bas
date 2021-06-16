@@ -4,7 +4,7 @@
 40 HTAB 4: VTAB 19: PRINT "[B] for Bytes.": HTAB 4: PRINT "Limited to 78 ASCII characters."
 50 VTAB 22: INPUT "Enter A or B :";M$
 60 IF NOT (M$ = "A" OR M$ = "B" or M$="a" or M$="b") THEN GOTO 50
-70 IF (M$ = "B" or M$="b") THEN POKE M$ = "B" : 8,64: GOTO 700
+70 IF (M$ = "B" or M$="b") THEN M$ = "B": POKE 8,64: GOTO 700
 80 IF (M$ = "A" or M$="a") THEN M$ = "A": POKE 8,32: GOTO 800
 700 HOME : VTAB 8
 710 PRINT "BYTE MODE:": PRINT " Enter up to 78 ASCII characters:"
