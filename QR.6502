@@ -63,6 +63,43 @@ RDPAGE2		EQU	$C01C		; high bit set if on page2
 ROMINIT   	EQU $FB2F
 ROMSETKBD 	EQU $FE89
 ROMSETVID 	EQU $FE93
+SLOT3STATUS EQU $C017      ; bit 7 only
+MACHINEID	EQU $FBB3
+
+
+80STOREOFF 	EQU	$C000
+80STOREON 	EQU	$C001
+80STORE		EQU	$C018	; R7
+
+80COLOFF  	EQU	$C00C
+80COLON  	EQU	$C00D
+80COL		EQU	$C01F	; R7
+
+TEXTOFF  	EQU	$C050
+TEXTON  	EQU	$C051
+TEXT		EQU	$C01A	; R7
+
+MIXEDOFF  	EQU	$C052
+MIXEDON		EQU	$C053
+MIXED		EQU	$C01B	; R7
+
+PAGE2OFF 	EQU	$C054	; MAIN
+PAGE2ON 	EQU	$C055	; AUX
+PAGE2		EQU	$C01C	; R7
+
+HIRESOFF	EQU	$C056
+HIRESON		EQU	$C057
+HIRES		EQU	$C01D	; R7
+
+   
+RAMRDOFF	EQU	$C002	; MAIN
+RAMRDON 	EQU	$C003	; AUX
+RAMRD		EQU	$C013	; R7
+
+RAMWRTOFF	EQU	$C004	; MAIN
+RAMWRTON	EQU	$C005	; AUX
+RAMWR		EQU	$C014	; R7
+
 
 **************************************************
 * Let's get this party started
@@ -75,10 +112,21 @@ ROMSETVID 	EQU $FE93
 	
 
 SETUP		JSR ROMINIT               	 	; GR/HGR off, Text page 1
-			LDA #$00
-			STA LORES						; low res graphics mode
-			STA MIXCLR
-			JSR CLEARSCREEN					; BLANK SCREEN
+			STA	LORES
+			STA	HIRESOFF
+			STA	MIXCLR
+			
+			JSR Has128K						; do we have DLR?
+			BCC SETUPDONE
+			STA	SET80VID					; double low-res mode
+			STA	SETAN3						; double low-res mode
+
+			STA 80STOREON
+			STA PAGE2OFF					; write to MAIN mem, display MAIN DLR page
+
+
+			
+SETUPDONE	JSR CLEARSCREEN					; BLANK SCREEN
 
 
 **************************************************
@@ -468,7 +516,10 @@ CKCOLUMN	CMP #$01			; IS IT #$01? THEN WE'RE DONE HERE.
 			JMP NEXTZIG	
 
 
-DODISPLAY	LDX #$0				; COPY THE QR BYTES TO THE SCREEN.
+DODISPLAY	BIT 80STORE			; 80 column mode, do double-lo-res
+			BMI DODLR 
+
+DOLR		LDX #$0				; COPY THE QR BYTES TO THE SCREEN.
 			
 			
 NEXTLINE	LDY #$20
@@ -496,8 +547,74 @@ QRDONE 		JMP QRDONE
 
 
 
+DODLR		; MOVE GENERATED PIXELS TO DOUBLE LO RES SCREEN
+			LDX #$0
 			
+PAGE1LINE	
+			LDA QRLINESHI,X		; QRLINESHI/LO,X INTO LO/HIBYTE
+			STA HIBYTE
+			LDA QRLINESLO,X
+			STA LOBYTE
+			
+			INX					; LO RES SCREEN LO/HI INTO COLUMN/ROW
+			LDA LoLineTableL,X	; TARGET DOWN ONE ROW FOR WHITE SPACE AT TOP 
+			STA ROW
+			LDA	LoLineTableH,X
+			STA COLUMN
+			INC ROW
+			INC ROW				; WHITE SPACE ON LEFT
 
+			LDY #$1F			; 33 COLUMNS
+
+NEXTP1COL	LDA (LOBYTE),Y		; GET QR PIXEL
+			PHA
+			TYA
+			LSR
+			TAY
+			PLA
+			STA (ROW),Y			; STORE AT SCREEN PIXEL
+			TYA
+			ROL
+			TAY
+			DEY
+			DEY
+			BPL NEXTP1COL			
+			CPX #$11
+			BNE	PAGE1LINE									
+
+			LDX #$0
+			STA PAGE2ON
+PAGE2LINE	
+			LDA QRLINESHI,X		; QRLINESHI/LO,X INTO LO/HIBYTE
+			STA HIBYTE
+			LDA QRLINESLO,X
+			STA LOBYTE
+			
+			INX					; LO RES SCREEN LO/HI INTO COLUMN/ROW
+			LDA LoLineTableL,X	; TARGET DOWN ONE ROW FOR WHITE SPACE AT TOP 
+			STA ROW
+			LDA	LoLineTableH,X
+			STA COLUMN
+			INC ROW
+			INC ROW				; WHITE SPACE ON LEFT
+			LDY #$20
+NEXTP2COL	LDA (LOBYTE),Y		; GET QR PIXEL
+			PHA
+			TYA
+			LSR
+			TAY
+			PLA
+			STA (ROW),Y			; STORE AT SCREEN PIXEL
+			TYA
+			ROL
+			TAY
+			DEY
+			DEY
+			BPL NEXTP2COL			
+			CPX #$11
+			BNE	PAGE2LINE									
+
+			JMP QRDONE
 
 
 *** NEXTQRBYTE
@@ -568,6 +685,10 @@ MASKDONE1	RTS
 
 
 
+
+
+
+
 **************************************************
 * blanks the screen quickly.
 * CLOBBERS A,Y 
@@ -622,6 +743,58 @@ CHECKCHAR								; FOR EACH CHARACTER OF THE MESSAGE, CHECK FOR FF
 				LDA ALPHANUM,X
 				BPL CHECKCHAR
 				RTS						; OOPS. INVALID CHARACTER. 
+
+
+**************************************************
+* DO WE HAVE ACCESS TO 80 COLS/DLR MODE?
+* ADAPTED FROM:
+* https://github.com/a2-4am/4cade/blob/master/src/hw.memcheck.a
+**************************************************
+
+Has128K
+         bit   $C082
+         sta   80STOREOFF
+         lda   MACHINEID
+         cmp   #$A0
+         beq   IIE                     ; Spectrum ED
+         cmp   #$06
+         bne   @no                   ; earlier than //e -> no 128K
+IIE		lda   SLOT3STATUS
+         bmi   @no                   ; no 80-column card -> no 128K
+         ldx   @checklen
+LOOPC	lda   @checker,x
+         sta   $80,x
+         dex
+         bpl   LOOPC
+         jmp   $80                   ; check if auxmem actually works
+@checker
+         lda   #$EE
+         sta   RAMWRTON
+         sta   RAMRDON
+         sta   $0C00
+         sta   $0800
+         lda   $0C00
+         cmp   #$EE
+         bne   @no
+         asl   $0C00
+         asl
+         cmp   $0C00
+         bne   @no
+         cmp   $0800
+         bne   @yes
+@no      clc
+         db #$24
+@yes     sec
+@finish  sta   RAMWRTOFF
+         sta   RAMRDOFF
+         rts
+
+@checklen	db *-@checker
+
+
+
+
+
 
 
 			DS \
