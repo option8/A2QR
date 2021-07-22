@@ -172,7 +172,30 @@ GETMESSAGE	LDA MESSAGE,Y	; 0
 			INY				; 2
 			CPY MESSAGELENGTH
 			BCC GETMESSAGE
-			BCS BUILDQR
+			BEQ BUILDQR
+
+
+			* overrun, means last character is odd one out:
+*** If you are encoding an odd number of characters, take the numeric representation 
+*** of the final character and convert it into a 6-bit binary string.
+			DEY 				; Y=MESSAGELENGTH
+			DEY
+			LDA MESSAGE,Y 		; LAST ACTUAL CHAR OF MESSAGE
+			TAX
+			LSR
+			LSR
+			LSR
+			AND #$07
+			STA STORAGE,Y		; HI 3 BITS
+			TXA		
+			ASL
+			ASL
+			ASL
+			ASL
+			ASL
+			AND #$E0
+			STA STORAGE+1,Y		; LO 3 BITS
+			JMP BUILDQR
 
 
 **************************************************
@@ -344,6 +367,9 @@ PADBYTES2	ASL
 PADBITS		STA MPINTS,Y		; STORE INCOMPLETE BYTE WITH TRAILING ZEROS
 			CPX #$04			; NEEDS TO BE AT LEAST 4 FOR TERMINATOR
 			BCS PADLOOP
+			LDA MESSAGELENGTH
+			AND #$01
+			BEQ PADLOOP
 			INY
 PADLOOP		INY					; NEXT QR BYTE
 			CPY #$50
@@ -706,6 +732,19 @@ FILL1			DEY
 				STA $700, Y
 				STA $780, Y
 				BNE FILL1
+				STA PAGE2ON			; go again on AUX400
+				LDY #$78
+FILL2			DEY
+				STA $400, Y
+				STA $480, Y
+				STA $500, Y
+				STA $580, Y
+				STA $600, Y
+				STA $680, Y
+				STA $700, Y
+				STA $780, Y
+				BNE FILL2
+				STA PAGE2OFF		; back to MAIN
 				RTS
 
 
